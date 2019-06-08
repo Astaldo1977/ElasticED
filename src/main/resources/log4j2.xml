@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="info">
+	<Appenders>
+		<Console name="console" target="SYSTEM_OUT">
+			<PatternLayout pattern="%d %-5p %c:%L -> %m%n" />
+		</Console>
+	</Appenders>
+	<Loggers>
+        <logger name="org.apache.http"          additivity="false" level="warn"/>
+        <logger name="org.elasticsearch.client" additivity="false" level="warn"/>
+		<Root level="debug">
+			<AppenderRef ref="console" />
+		</Root>
+	</Loggers>
+</Configuration>

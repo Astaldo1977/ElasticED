@@ -15,9 +15,7 @@ import org.elasticsearch.action.delete.DeleteRequest;
 import org.elasticsearch.action.get.GetRequest;
 import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.action.index.IndexRequest;
-import org.elasticsearch.action.search.SearchRequest;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.action.search.SearchScrollRequest;
+import org.elasticsearch.action.update.UpdateRequest;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestClient;
@@ -27,14 +25,9 @@ import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.TermQueryBuilder;
 import org.elasticsearch.index.reindex.BulkByScrollResponse;
 import org.elasticsearch.index.reindex.UpdateByQueryRequest;
-import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.script.Script;
-import org.elasticsearch.script.ScriptType;
-import org.elasticsearch.search.Scroll;
-import org.elasticsearch.search.SearchHit;
 
 import de.astaldo.elastic_ed.elastic_search.LoggingBulkProcessorListener;
-import de.astaldo.elastic_ed.elastic_search.UpdateByQueryListener;
 
 public class ElasticSearchConnector {
 
@@ -83,7 +76,7 @@ public class ElasticSearchConnector {
         }
     }
     public Listener addBulkProcessor(RestHighLevelClient client) {
-        return addBulkProcessor(client, 60, 10000);
+        return addBulkProcessor(client, 30, 1000);
     }
     public Listener addBulkProcessor(RestHighLevelClient client, int flushIntervalSeconds, int bulkActions) {
         Listener bulkProcessorListener = new LoggingBulkProcessorListener();
@@ -105,50 +98,27 @@ public class ElasticSearchConnector {
             bulkProcessor.flush();
         }
     }
-    public void addDocument(String json, String documentId) throws IOException {
+    public void addDocument(String documentId, String json) throws IOException {
         bulkProcessor.add(
                 new IndexRequest(core)
                     .id(documentId)
                     .source(json, XContentType.JSON));
     }
+    public void updateDocument(String documentId, Map<String, Object> data) {
+        bulkProcessor.add(
+                new UpdateRequest(core, documentId)
+                    .doc(data));
+    }
     public void removeDocument(String documentId) throws IOException {
         bulkProcessor.add(
                 new DeleteRequest(core)
                     .id(documentId));
-    }    
-    public void scrollAll(SearchRequest searchRequest, ActionListener<SearchResponse> scrollListener) throws IOException {
-        final Scroll scroll = new Scroll(TimeValue.timeValueMinutes(1L));
-        SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
-        if(searchResponse.status() == RestStatus.OK && searchResponse.getScrollId() != null) {
-            String scrollId = searchResponse.getScrollId();
-            SearchHit[] searchHits = searchResponse.getHits().getHits();
-            ActionListener<BulkByScrollResponse> updateListener = new UpdateByQueryListener();
-            while (searchHits != null && searchHits.length > 0) {
-                for (int i = 0; i < searchHits.length; i++) {
-                    Number id64 = (Number)searchHits[i].getSourceAsMap().get("id64");
-                    String elasticSearchId =  searchHits[i].getId();
-                    Map<String, Object> coords = (Map<String, Object>) searchHits[i].getSourceAsMap().get("coords");
-                    Script script = new Script(
-                            ScriptType.INLINE, "painless",
-                            "ctx._source.systemCoords=[params.x,params.y,params.z]",
-                            coords); 
-//                    logger.info("Updating bodies with systemId64: " + id64);
-                    updateAllBodiesWithSystemId64(id64, script, updateListener);
-                    removeDocument(elasticSearchId);
-                }
-                SearchScrollRequest searchScrollRequest = new SearchScrollRequest(scrollId); 
-                searchScrollRequest.scroll(scroll);
-                searchResponse = client.scroll(searchScrollRequest, RequestOptions.DEFAULT);
-                scrollId = searchResponse.getScrollId();
-                searchHits = searchResponse.getHits().getHits();
-            }
-            logger.info("Done!");
-        }
-        else {
-            logger.warn("Couldn't execute search. ");
-        }
-        
     }
+    
+    public RestHighLevelClient getClient() {
+        return client;
+    }
+
     private void updateAllBodiesWithSystemId64(Number id64, Script script, ActionListener<BulkByScrollResponse> updateListener) {
         UpdateByQueryRequest u = new UpdateByQueryRequest(EDSMTool.CORE_BODIES)
                 .setQuery(new TermQueryBuilder("systemId64", id64))
@@ -160,4 +130,5 @@ public class ElasticSearchConnector {
         GetResponse response = client.get(new GetRequest(this.core, documentId), RequestOptions.DEFAULT);
         return !response.isExists();
     }
+
 }
